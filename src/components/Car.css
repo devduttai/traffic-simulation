@@ -1,0 +1,46 @@
+/* Car-specific styles only */
+
+.car {
+  position: absolute;
+  width: 20px;
+  height: 10px;
+  background-color: #FF0000;
+  border-radius: 3px;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s linear;
+  z-index: 10;
+}
+
+.car-headlight {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background-color: #FFFF00;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  box-shadow: 0 0 3px #FFFF00;
+}
+
+.car-headlight:after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background-color: #FFFF00;
+  border-radius: 50%;
+  top: 0;
+  left: 14px;
+  box-shadow: 0 0 3px #FFFF00;
+}
+
+/* Add a subtle animation for cars that are moving */
+@keyframes engine-rumble {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(0.5px); }
+  100% { transform: translateY(0); }
+}
+
+.car:not([style*="opacity: 0.3"]) {
+  animation: engine-rumble 0.2s infinite;
+}
