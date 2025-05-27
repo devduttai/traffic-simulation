@@ -158,92 +158,92 @@ const Car = ({ car, streets, locations }) => {
         fill="#f0f8ff"
       />
 
-      {/* Modern LED tail lights - light up when slowing down or stopped */}
+      {/* ENHANCED: Larger, brighter tail lights with extended glow */}
       <ellipse
-        cx={-carWidth/2 + 1}
+        cx={-carWidth/2 - 1}
         cy={-carHeight/3}
-        rx="1.5"
-        ry="1"
+        rx="2.5"
+        ry="1.5"
         fill={isSlowingOrStopped ? "#FF0000" : "#800000"}
         stroke="#600000"
-        strokeWidth="0.3"
+        strokeWidth="0.5"
         opacity={isSlowingOrStopped ? 1 : 0.4}
         style={{
-          filter: isSlowingOrStopped ? 'drop-shadow(0 0 3px #FF0000)' : 'none'
+          filter: isSlowingOrStopped ? 'drop-shadow(0 0 6px #FF0000) drop-shadow(0 0 12px #FF4444)' : 'none'
         }}
       />
       <ellipse
-        cx={-carWidth/2 + 1}
+        cx={-carWidth/2 - 1}
         cy={carHeight/3}
-        rx="1.5"
-        ry="1"
+        rx="2.5"
+        ry="1.5"
         fill={isSlowingOrStopped ? "#FF0000" : "#800000"}
         stroke="#600000"
-        strokeWidth="0.3"
+        strokeWidth="0.5"
         opacity={isSlowingOrStopped ? 1 : 0.4}
         style={{
-          filter: isSlowingOrStopped ? 'drop-shadow(0 0 3px #FF0000)' : 'none'
+          filter: isSlowingOrStopped ? 'drop-shadow(0 0 6px #FF0000) drop-shadow(0 0 12px #FF4444)' : 'none'
         }}
       />
 
       {/* Modern LED turn signals - integrated into headlights and taillights */}
-      {/* Front left turn signal */}
+      {/* ENHANCED: Front left turn signal - larger and brighter when active */}
       <ellipse
         cx={carWidth/2 - 2}
         cy={-carHeight/2 + 1}
-        rx="2"
-        ry="1.2"
-        fill={isLeftTurn && shouldShowTurnSignals && blinkOn ? "#FFA500" : "#804000"}
+        rx={isLeftTurn && shouldShowTurnSignals && blinkOn ? "3" : "2"}
+        ry={isLeftTurn && shouldShowTurnSignals && blinkOn ? "1.8" : "1.2"}
+        fill={isLeftTurn && shouldShowTurnSignals && blinkOn ? "#FF8C00" : "#804000"}
         stroke="#603000"
         strokeWidth="0.3"
         opacity={isLeftTurn && shouldShowTurnSignals && blinkOn ? 1 : 0.3}
         style={{
-          filter: isLeftTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 4px #FFA500) drop-shadow(0 0 8px #FFA500)' : 'none'
+          filter: isLeftTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 8px #FF8C00) drop-shadow(0 0 16px #FFA500)' : 'none'
         }}
       />
 
-      {/* Front right turn signal */}
+      {/* ENHANCED: Front right turn signal - larger and brighter when active */}
       <ellipse
         cx={carWidth/2 - 2}
         cy={carHeight/2 - 1}
-        rx="2"
-        ry="1.2"
-        fill={isRightTurn && shouldShowTurnSignals && blinkOn ? "#FFA500" : "#804000"}
+        rx={isRightTurn && shouldShowTurnSignals && blinkOn ? "3" : "2"}
+        ry={isRightTurn && shouldShowTurnSignals && blinkOn ? "1.8" : "1.2"}
+        fill={isRightTurn && shouldShowTurnSignals && blinkOn ? "#FF8C00" : "#804000"}
         stroke="#603000"
         strokeWidth="0.3"
         opacity={isRightTurn && shouldShowTurnSignals && blinkOn ? 1 : 0.3}
         style={{
-          filter: isRightTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 4px #FFA500) drop-shadow(0 0 8px #FFA500)' : 'none'
+          filter: isRightTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 8px #FF8C00) drop-shadow(0 0 16px #FFA500)' : 'none'
         }}
       />
 
-      {/* Rear left turn signal */}
+      {/* ENHANCED: Rear left turn signal - larger and brighter when active */}
       <ellipse
         cx={-carWidth/2 + 2}
         cy={-carHeight/2 + 1}
-        rx="2"
-        ry="1.2"
-        fill={isLeftTurn && shouldShowTurnSignals && blinkOn ? "#FFA500" : "#804000"}
+        rx={isLeftTurn && shouldShowTurnSignals && blinkOn ? "3" : "2"}
+        ry={isLeftTurn && shouldShowTurnSignals && blinkOn ? "1.8" : "1.2"}
+        fill={isLeftTurn && shouldShowTurnSignals && blinkOn ? "#FF8C00" : "#804000"}
         stroke="#603000"
         strokeWidth="0.3"
         opacity={isLeftTurn && shouldShowTurnSignals && blinkOn ? 1 : 0.3}
         style={{
-          filter: isLeftTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 4px #FFA500) drop-shadow(0 0 8px #FFA500)' : 'none'
+          filter: isLeftTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 8px #FF8C00) drop-shadow(0 0 16px #FFA500)' : 'none'
         }}
       />
 
-      {/* Rear right turn signal */}
+      {/* ENHANCED: Rear right turn signal - larger and brighter when active */}
       <ellipse
         cx={-carWidth/2 + 2}
         cy={carHeight/2 - 1}
-        rx="2"
-        ry="1.2"
-        fill={isRightTurn && shouldShowTurnSignals && blinkOn ? "#FFA500" : "#804000"}
+        rx={isRightTurn && shouldShowTurnSignals && blinkOn ? "3" : "2"}
+        ry={isRightTurn && shouldShowTurnSignals && blinkOn ? "1.8" : "1.2"}
+        fill={isRightTurn && shouldShowTurnSignals && blinkOn ? "#FF8C00" : "#804000"}
         stroke="#603000"
         strokeWidth="0.3"
         opacity={isRightTurn && shouldShowTurnSignals && blinkOn ? 1 : 0.3}
         style={{
-          filter: isRightTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 4px #FFA500) drop-shadow(0 0 8px #FFA500)' : 'none'
+          filter: isRightTurn && shouldShowTurnSignals && blinkOn ? 'drop-shadow(0 0 8px #FF8C00) drop-shadow(0 0 16px #FFA500)' : 'none'
         }}
       />
 

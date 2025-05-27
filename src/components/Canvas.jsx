@@ -102,7 +102,7 @@ const Canvas = ({
         setParkingLotCars(prev => ({...prev, ...initialParkingLotCars}));
       }
 
-      // Create traffic lights for intersections only when they're created
+      // ENHANCED: Check for 4-way intersections and reinitialize traffic lights for BOTH sides
       const intersections = locations.filter(loc => {
         const connectedStreets = streets.filter(
           s => s.from === loc.id || s.to === loc.id
@@ -110,32 +110,61 @@ const Canvas = ({
         return connectedStreets.length > 2;
       });
 
-      const newTrafficLights = [];
+      // Check each intersection to see if it needs traffic light reinitialization
       intersections.forEach(intersection => {
         const connectedStreets = streets.filter(
           s => s.from === intersection.id || s.to === intersection.id
         );
 
-        // Check if traffic lights already exist for this intersection
         const existingLights = trafficLights.filter(
           light => light.locationId === intersection.id
         );
 
-        if (existingLights.length === 0 && connectedStreets.length > 2) {
+        // CRITICAL FIX: If we have a 4-way intersection but wrong number of lights, reinitialize
+        if (connectedStreets.length === 4 && existingLights.length !== 4) {
+          console.log(`🚦 ${side} side: 4-way intersection ${intersection.id} has ${existingLights.length} lights, should have 4 - reinitializing`);
+
+          // Small delay to ensure street data is fully propagated
+          setTimeout(() => {
+            setTrafficLights(prevLights => {
+              // Double-check the lights count in case it was updated by another process
+              const currentLights = prevLights.filter(light => light.locationId === intersection.id);
+              if (currentLights.length === 4) {
+                console.log(`${side} side: Traffic lights already correct for ${intersection.id}`);
+                return prevLights;
+              }
+
+              // Remove existing lights at this location
+              const remainingLights = prevLights.filter(light => light.locationId !== intersection.id);
+
+              // Create 4 brand new traffic lights
+              const newLights = createIntersectionTrafficLights(
+                intersection,
+                connectedStreets,
+                locations
+              );
+
+              console.log(`✅ ${side} side: Created ${newLights.length} new traffic lights for 4-way intersection ${intersection.id}`);
+              return [...remainingLights, ...newLights];
+            });
+          }, 100); // Small delay for synchronization
+        }
+        // Create traffic lights for new intersections
+        else if (existingLights.length === 0 && connectedStreets.length > 2) {
           const lights = createIntersectionTrafficLights(
             intersection,
             connectedStreets,
             locations
           );
-          newTrafficLights.push(...lights);
+
+          setTrafficLights(prev => {
+            console.log(`✅ ${side} side: Created ${lights.length} traffic lights for new intersection ${intersection.id}`);
+            return [...prev, ...lights];
+          });
         }
       });
-
-      if (newTrafficLights.length > 0) {
-        setTrafficLights(prev => [...prev, ...newTrafficLights]);
-      }
     }
-  }, [locations, streets]);
+  }, [locations, streets, side]); // Added 'side' to dependencies
 
   // Animation loop for simulation
   useEffect(() => {
@@ -185,8 +214,34 @@ const Canvas = ({
           });
         }
 
+        // ENHANCED: Detect and handle stuck cars (but only remove them, don't replace)
+        const stuckCars = updatedCars.filter(car => {
+          if (car.reachedDestination) return false;
+
+          // Check if car has been not moving for too long
+          const timeNotMoving = car.timeNotMoving || 0;
+          const STUCK_THRESHOLD = 30; // Increased to 30 seconds to give new collision detection time to resolve deadlocks
+
+          return timeNotMoving > STUCK_THRESHOLD && car.speed < 0.01;
+        });
+
+        // Remove stuck cars (but don't automatically replace them to prevent car explosion)
+        let carsAfterStuckRemoval = updatedCars;
+        if (stuckCars.length > 0) {
+          console.log(`🚨 Detected ${stuckCars.length} stuck cars, removing them...`);
+
+          stuckCars.forEach(stuckCar => {
+            console.log(`Removing stuck car ${stuckCar.id} at street ${stuckCar.currentStreetId}`);
+          });
+
+          // Remove stuck cars from the list
+          carsAfterStuckRemoval = carsAfterStuckRemoval.filter(car =>
+            !stuckCars.some(stuckCar => stuckCar.id === car.id)
+          );
+        }
+
         // Calculate metrics for all cars (active + completed)
-        const allCars = updatedCars;
+        const allCars = carsAfterStuckRemoval;
 
         if (allCars.length > 0) {
           // Metric 1: Stops per car
@@ -230,7 +285,7 @@ const Canvas = ({
 
         // MEMORY LEAK FIX: Remove cars that have been at destination too long
         const MAX_CAR_LIFETIME = 300000; // 5 minutes in milliseconds
-        const cleanedCars = updatedCars.filter(car => {
+        const cleanedCars = carsAfterStuckRemoval.filter(car => {
           const age = Date.now() - car.createdAt;
           if (age > MAX_CAR_LIFETIME) {
             console.log(`🗑️ Removing old car ${car.id} (age: ${(age/1000).toFixed(1)}s)`);
@@ -283,13 +338,19 @@ const Canvas = ({
 
                 // Note: Car initial progress is handled correctly in createCar function
 
-                // Create a new car
+                // Create a new car with validation
                 const newCar = createCar(
                   parkingLot.id,
                   destination.id,
                   startStreet.id,
                   direction
                 );
+
+                // VALIDATION: Only proceed if car creation was successful
+                if (!newCar) {
+                  console.error(`❌ Failed to create car at parking lot ${parkingLot.id}`);
+                  return;
+                }
 
                 // Create local copy with truly unique side prefix
                 const localCar = {
@@ -523,33 +584,41 @@ const Canvas = ({
                   type: '4way' // Will be updated automatically based on connected streets
                 };
 
-                // Create 4 new streets connecting to the intersection
+                // ENHANCED: Create 4 new streets with unique names
                 const baseTimestamp = Date.now();
+                const existingStreetNames = streets.map(s => s.name);
+
+                // Generate 4 unique street names sequentially
+                const streetName1 = generateUniqueName('Street', existingStreetNames);
+                const streetName2 = generateUniqueName('Street', [...existingStreetNames, streetName1]);
+                const streetName3 = generateUniqueName('Street', [...existingStreetNames, streetName1, streetName2]);
+                const streetName4 = generateUniqueName('Street', [...existingStreetNames, streetName1, streetName2, streetName3]);
+
                 const newStreets = [
                   {
                     id: `street-${baseTimestamp}-1`,
-                    name: generateUniqueName('Street', streets.map(s => s.name)),
+                    name: streetName1,
                     from: fromLocation.id,
                     to: newLocation.id,
                     width: STREET_WIDTH
                   },
                   {
                     id: `street-${baseTimestamp}-2`,
-                    name: generateUniqueName('Street', streets.map(s => s.name)),
+                    name: streetName2,
                     from: newLocation.id,
                     to: toLocation.id,
                     width: STREET_WIDTH
                   },
                   {
                     id: `street-${baseTimestamp}-3`,
-                    name: generateUniqueName('Street', streets.map(s => s.name)),
+                    name: streetName3,
                     from: streetFromLoc.id,
                     to: newLocation.id,
                     width: STREET_WIDTH
                   },
                   {
                     id: `street-${baseTimestamp}-4`,
-                    name: generateUniqueName('Street', streets.map(s => s.name)),
+                    name: streetName4,
                     from: newLocation.id,
                     to: streetToLoc.id,
                     width: STREET_WIDTH
@@ -594,41 +663,44 @@ const Canvas = ({
           if (!foundIntersection) {
             createNormalStreet();
 
-            // FIXED: Check if we just created a 4th street for an existing 3-way intersection
-            // This handles the case where a new street connects to an existing 3-way intersection
+            // REBUILT: Simple and reliable traffic light re-initialization for 3-way to 4-way conversion
             setTimeout(() => {
-              // Get the current state of streets after the new street was added
-              setStreets(currentStreets => {
-                // Check both endpoints to see if they became 4-way intersections
-                [fromLocation, toLocation].forEach(location => {
+              // Check both endpoints to see if they became 4-way intersections
+              [fromLocation, toLocation].forEach(location => {
+                setStreets(currentStreets => {
                   const connectedStreets = currentStreets.filter(
                     s => s.from === location.id || s.to === location.id
                   );
 
-                  // If this location now has exactly 4 streets, reinitialize traffic lights
+                  // If this location now has exactly 4 streets, completely rebuild traffic lights
                   if (connectedStreets.length === 4) {
-                    console.log(`Location ${location.id} became a 4-way intersection, reinitializing traffic lights`);
+                    console.log(`🚦 Location ${location.id} became 4-way intersection - rebuilding traffic lights`);
 
-                    setTrafficLights(prev => {
-                      // Remove existing lights at this location
-                      const filteredLights = prev.filter(light => light.locationId !== location.id);
+                    // STEP 1: Delete all existing traffic lights at this location
+                    setTrafficLights(prevLights => {
+                      const lightsToRemove = prevLights.filter(light => light.locationId === location.id);
+                      console.log(`🗑️ Removing ${lightsToRemove.length} existing traffic lights at ${location.id}`);
 
-                      // Create new traffic lights for the 4-way intersection
+                      const remainingLights = prevLights.filter(light => light.locationId !== location.id);
+
+                      // STEP 2: Create 4 brand new traffic lights in 2 opposite pairs
                       const newLights = createIntersectionTrafficLights(
                         location,
                         connectedStreets,
                         locations
                       );
 
-                      console.log(`Reinitialized ${newLights.length} traffic lights for upgraded 4-way intersection ${location.id}`);
-                      return [...filteredLights, ...newLights];
+                      console.log(`✅ Created ${newLights.length} new traffic lights for 4-way intersection ${location.id} on ${side} side`);
+                      console.log(`Traffic light pairs:`, newLights.map(l => ({ id: l.id, groupId: l.oppositeGroupId, state: l.state })));
+
+                      return [...remainingLights, ...newLights];
                     });
                   }
-                });
 
-                return currentStreets; // Return unchanged streets
+                  return currentStreets; // Return unchanged streets
+                });
               });
-            }, 200); // Delay to ensure street is added first
+            }, 300); // Sufficient delay to ensure street is fully added
           }
         }
       }
@@ -674,13 +746,20 @@ const Canvas = ({
     // Determine direction based on street endpoints
     const direction = startStreet.from === locationId ? 'forward' : 'backward';
 
-    // Create a new car immediately
+    // Create a new car immediately with validation
     const newCar = createCar(
       locationId,
       destination.id,
       startStreet.id,
       direction
     );
+
+    // VALIDATION: Only proceed if car creation was successful
+    if (!newCar) {
+      console.error(`❌ Failed to create car at location ${locationId}`);
+      alert('Failed to create car. Please check the console for details.');
+      return;
+    }
 
     // Create local copy with truly unique side prefix
     const localCar = {
@@ -863,6 +942,7 @@ const Canvas = ({
             <Street
               key={`${side}-${street.id}`}
               street={street}
+              side={side}
               fromLocation={fromLocation}
               toLocation={toLocation}
               width={street.width}

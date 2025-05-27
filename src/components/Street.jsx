@@ -4,6 +4,7 @@ const Street = ({
   street,
   fromLocation,
   toLocation,
+  side,
   width = 60, // Default width increased to match location diameter
   isEditable,
   onRename,
@@ -185,7 +186,7 @@ const Street = ({
       />
       
       {/* Street name label - outside the street, parallel, with 1px gap */}
-      {/*
+      {side === 'left' && (
       <g transform={`translate(${labelX}, ${labelY}) rotate(${angle})`}>
         <rect
           x={-30}
@@ -208,10 +209,10 @@ const Street = ({
           fill="#333"
           transform={angle > 90 || angle < -90 ? "rotate(180)" : ""}
         >
-          {name}
+          {name.toUpperCase()}
         </text>
       </g> 
-      */}
+      )}
     </g>
   );
 };

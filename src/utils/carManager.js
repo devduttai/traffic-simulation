@@ -36,9 +36,19 @@ export const getRandomCarColor = () => {
 export const createCar = (startLocationId, destinationId, startStreetId, direction, maxSpeed = 1.0) => {
   const id = generateUniqueId();
 
+  // VALIDATION: Ensure all required parameters are provided to prevent teleportation
+  if (!startLocationId || !destinationId || !startStreetId || !direction) {
+    console.error(`❌ Cannot create car: missing required parameters`, {
+      startLocationId, destinationId, startStreetId, direction
+    });
+    return null;
+  }
+
   // Random preferred speed between 1-4 car lengths per second (as per spec)
   // Doubled for faster simulation
   const preferredSpeed = Math.min((0.3 + Math.random() * 0.4) * 2, maxSpeed);
+
+  console.log(`✅ Creating car ${id} at location ${startLocationId} -> ${destinationId} on street ${startStreetId} (${direction})`);
 
   return {
     id,
@@ -78,7 +88,7 @@ export const createCar = (startLocationId, destinationId, startStreetId, directi
 };
 
 /**
- * Calculates car position on a street with right-hand driving
+ * Calculates car position on a street with right-hand driving and smooth intersection transitions
  * @param {Object} car - Car object
  * @param {Array} streets - All streets
  * @param {Array} locations - All locations
@@ -112,40 +122,35 @@ export const calculateCarPosition = (car, streets, locations) => {
   if (progress < 0) progress = 0;
   if (progress > 1) progress = 1;
 
-  // Calculate center line position
-  // CRITICAL FIX: For backward direction, we need to invert the progress calculation
-  // This ensures that progress=0 is always the start point of the car's journey on this street
-  // and progress=1 is always the end point, regardless of direction
+  // ENHANCED: Check if car is in intersection transition for smooth curved motion
+  const CURVE_TRANSITION_ZONE = 0.15; // 15% of street length for curve transition
+
+  // Determine if we're in a curve transition zone
+  const isNearIntersection = (car.direction === 'forward' && progress > (1 - CURVE_TRANSITION_ZONE)) ||
+                            (car.direction === 'backward' && progress < CURVE_TRANSITION_ZONE);
+
+  if (isNearIntersection && car.nextTurn && car.nextTurn !== 'straight' && car.nextTurn !== 'uturn') {
+    // SMOOTH CURVED MOTION: Calculate curved path for turns
+    const position = calculateCurvedTurnPosition(car, street, fromLocation, toLocation, progress, streets, locations);
+    if (position) {
+      return position;
+    }
+  }
+
+  // Standard straight-line positioning
   let centerX, centerY;
   if (car.direction === 'forward') {
     // Forward: from 'from' location to 'to' location
-    // progress=0 -> at fromLocation, progress=1 -> at toLocation
     centerX = fromLocation.x + (toLocation.x - fromLocation.x) * progress;
     centerY = fromLocation.y + (toLocation.y - fromLocation.y) * progress;
   } else {
     // Backward: from 'to' location to 'from' location
-    // progress=0 -> at toLocation, progress=1 -> at fromLocation
-    // FIXED: Use (1 - progress) to invert the direction
     centerX = toLocation.x + (fromLocation.x - toLocation.x) * (1 - progress);
     centerY = toLocation.y + (fromLocation.y - toLocation.y) * (1 - progress);
   }
 
   // Calculate street angle
   const streetAngle = Math.atan2(toLocation.y - fromLocation.y, toLocation.x - fromLocation.x);
-
-  // Debug logging for problematic cars - increased frequency for testing
-  if (Math.random() < 0.05) { // 5% chance to log
-    console.log(`🚗 Car ${car.id.substring(0, 8)} position calculation:`, {
-      streetId: car.currentStreetId.substring(0, 8),
-      direction: car.direction,
-      progress: progress.toFixed(3),
-      fromLocation: { x: fromLocation.x.toFixed(1), y: fromLocation.y.toFixed(1), id: fromLocation.id.substring(0, 8) },
-      toLocation: { x: toLocation.x.toFixed(1), y: toLocation.y.toFixed(1), id: toLocation.id.substring(0, 8) },
-      calculatedCenter: { x: centerX.toFixed(1), y: centerY.toFixed(1) },
-      finalPosition: { x: (centerX + Math.cos(car.direction === 'forward' ? streetAngle + Math.PI/2 : streetAngle - Math.PI/2) * 12).toFixed(1),
-                      y: (centerY + Math.sin(car.direction === 'forward' ? streetAngle + Math.PI/2 : streetAngle - Math.PI/2) * 12).toFixed(1) }
-    });
-  }
 
   // Calculate perpendicular angle for lane offset
   // For right-hand driving: add 90° when going forward, subtract 90° when going backward
@@ -171,6 +176,111 @@ export const calculateCarPosition = (car, streets, locations) => {
   }
 
   return { x, y, angle };
+};
+
+/**
+ * Calculates smooth curved position for cars making turns at intersections
+ * @param {Object} car - Car object
+ * @param {Object} street - Current street
+ * @param {Object} fromLocation - From location
+ * @param {Object} toLocation - To location
+ * @param {number} progress - Progress along street
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {Object|null} Curved position with smooth rotation
+ */
+const calculateCurvedTurnPosition = (car, street, fromLocation, toLocation, progress, streets, locations) => {
+  // DISABLED: Curved turns are causing angle calculation issues
+  // Return null to use standard straight-line positioning
+  return null;
+
+  /* COMMENTED OUT UNTIL ANGLE ISSUES ARE RESOLVED
+  try {
+    // Determine the intersection location
+    const intersectionLocation = car.direction === 'forward' ? toLocation : fromLocation;
+
+    // Find the next street for the turn
+    const nextStreetInfo = findBestNextStreet(
+      intersectionLocation.id,
+      car.destinationId,
+      car.currentStreetId,
+      streets,
+      locations,
+      car.originalId || car.id
+    );
+
+    if (!nextStreetInfo || !nextStreetInfo.street) {
+      return null;
+    }
+
+    const nextStreet = nextStreetInfo.street;
+    const nextFromLocation = locations.find(loc => loc.id === nextStreet.from);
+    const nextToLocation = locations.find(loc => loc.id === nextStreet.to);
+
+    if (!nextFromLocation || !nextToLocation) {
+      return null;
+    }
+
+    // Calculate curve parameters
+    const CURVE_TRANSITION_ZONE = 0.15;
+
+    // Determine curve progress (0 = start of curve, 1 = end of curve)
+    let curveProgress;
+    if (car.direction === 'forward') {
+      curveProgress = Math.max(0, (progress - (1 - CURVE_TRANSITION_ZONE)) / CURVE_TRANSITION_ZONE);
+    } else {
+      curveProgress = Math.max(0, ((CURVE_TRANSITION_ZONE - progress) / CURVE_TRANSITION_ZONE));
+    }
+
+    // Current street direction
+    const currentAngle = Math.atan2(toLocation.y - fromLocation.y, toLocation.x - fromLocation.x);
+
+    // Next street direction
+    const nextAngle = nextStreetInfo.direction === 'forward'
+      ? Math.atan2(nextToLocation.y - nextFromLocation.y, nextToLocation.x - nextFromLocation.x)
+      : Math.atan2(nextFromLocation.y - nextToLocation.y, nextToLocation.x - nextFromLocation.x);
+
+    // Calculate smooth interpolated angle
+    let angleDiff = nextAngle - currentAngle;
+
+    // Normalize angle difference to [-π, π]
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Smooth curve interpolation using ease-in-out
+    const smoothProgress = 0.5 - 0.5 * Math.cos(curveProgress * Math.PI);
+    const interpolatedAngle = currentAngle + angleDiff * smoothProgress;
+
+    // Calculate curved position
+    const straightX = car.direction === 'forward'
+      ? fromLocation.x + (toLocation.x - fromLocation.x) * progress
+      : toLocation.x + (fromLocation.x - toLocation.x) * (1 - progress);
+    const straightY = car.direction === 'forward'
+      ? fromLocation.y + (toLocation.y - fromLocation.y) * progress
+      : toLocation.y + (fromLocation.y - toLocation.y) * (1 - progress);
+
+    // Apply curve offset towards intersection center for realistic turning
+    const curveRadius = 15; // Curve radius for smooth turns
+    const curveOffsetX = Math.cos(interpolatedAngle + Math.PI/2) * curveRadius * smoothProgress * 0.4;
+    const curveOffsetY = Math.sin(interpolatedAngle + Math.PI/2) * curveRadius * smoothProgress * 0.4;
+
+    // Lane offset for right-hand driving
+    const laneOffset = 12;
+    const perpAngle = interpolatedAngle + Math.PI / 2;
+    const laneOffsetX = Math.cos(perpAngle) * laneOffset;
+    const laneOffsetY = Math.sin(perpAngle) * laneOffset;
+
+    return {
+      x: straightX + curveOffsetX + laneOffsetX,
+      y: straightY + curveOffsetY + laneOffsetY,
+      angle: interpolatedAngle * 180 / Math.PI
+    };
+
+  } catch (error) {
+    console.warn('Error calculating curved turn position:', error);
+    return null;
+  }
+  */
 };
 
 // Global routing decisions cache to synchronize twin cars
@@ -393,23 +503,66 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
   let shouldStop = false;
   let waitingToTurnLeft = false;
 
-  // Check for cars ahead (car following behavior)
+  // ENHANCED COLLISION DETECTION: Check for cars ahead and cross-traffic
   const carAhead = findCarAhead(car, allCars, streets, locations);
+  const crossTrafficAnalysis = findCrossTrafficCar(car, allCars, streets, locations);
+
+  // Handle car following behavior with enhanced collision detection
   if (carAhead) {
-    const distanceToCarAhead = calculateDistanceBetweenCars(car, carAhead, streets, locations);
-    const CAR_LENGTH = 24; // Car length in pixels (matches visual size)
-    const SAFE_FOLLOWING_DISTANCE = CAR_LENGTH * 2.5; // 2.5 car lengths for realistic following
-    const MINIMUM_DISTANCE = CAR_LENGTH * 1.2; // Minimum distance to prevent overlap
+    const collisionAnalysis = analyzeCarCollision(car, carAhead, streets, locations);
+    const CAR_LENGTH = 28; // Updated to match actual car width from Car.jsx
+    const SAFE_FOLLOWING_DISTANCE = CAR_LENGTH * 2.0; // Reduced for more realistic following
+    const MINIMUM_DISTANCE = CAR_LENGTH * 1.1; // Tighter minimum distance
 
-    if (distanceToCarAhead < SAFE_FOLLOWING_DISTANCE) {
-      // Gradual speed reduction based on distance
-      const speedReduction = Math.max(0, (SAFE_FOLLOWING_DISTANCE - distanceToCarAhead) / SAFE_FOLLOWING_DISTANCE);
-      targetSpeed = Math.min(targetSpeed, carAhead.speed * (1 - speedReduction * 0.5));
+    if (collisionAnalysis.distance < SAFE_FOLLOWING_DISTANCE) {
+      // Only slow down if we're moving toward the car ahead
+      if (collisionAnalysis.car1MovingToward) {
+        // Gradual speed reduction based on distance
+        const speedReduction = Math.max(0, (SAFE_FOLLOWING_DISTANCE - collisionAnalysis.distance) / SAFE_FOLLOWING_DISTANCE);
+        targetSpeed = Math.min(targetSpeed, carAhead.speed * (1 - speedReduction * 0.5));
 
-      if (distanceToCarAhead < MINIMUM_DISTANCE) {
-        targetSpeed = 0; // Stop if too close to prevent overlap
-        shouldStop = true;
+        if (collisionAnalysis.distance < MINIMUM_DISTANCE) {
+          targetSpeed = 0; // Stop if too close to prevent overlap
+          shouldStop = true;
+        }
       }
+    }
+  }
+
+  // ENHANCED: Handle cross-traffic collision avoidance with smart deadlock prevention
+  let crossTrafficBlocking = false;
+  if (crossTrafficAnalysis && crossTrafficAnalysis.shouldStop) {
+    // Only stop if we're moving toward the collision and it's necessary
+    if (crossTrafficAnalysis.analysis.car1MovingToward) {
+      targetSpeed = 0;
+      shouldStop = true;
+      crossTrafficBlocking = true;
+      console.log(`🚨 Car ${car.id} stopping for cross-traffic car ${crossTrafficAnalysis.car.id} (priority: ${crossTrafficAnalysis.priority})`);
+    } else {
+      console.log(`🚗 Car ${car.id} continuing - moving away from cross-traffic car ${crossTrafficAnalysis.car.id}`);
+    }
+  }
+
+  // DEADLOCK DETECTION AND RESOLUTION: Check if car is stuck and resolve deadlocks
+  if (shouldStop || car.speed < 0.01) {
+    const deadlockAnalysis = detectAndResolveDeadlock(car, allCars, streets, locations);
+
+    // Debug deadlock detection occasionally
+    if (deadlockAnalysis.hasDeadlock && Math.random() < 0.1) {
+      console.log(`🔍 DEADLOCK DETECTED: Car ${car.id}`, {
+        timeNotMoving: (car.timeNotMoving || 0).toFixed(1),
+        shouldProceed: deadlockAnalysis.shouldProceed,
+        reason: deadlockAnalysis.reason,
+        blockedBy: deadlockAnalysis.blockedBy
+      });
+    }
+
+    if (deadlockAnalysis.hasDeadlock && deadlockAnalysis.shouldProceed) {
+      // Override collision avoidance to break deadlock
+      targetSpeed = car.preferredSpeed || car.maxSpeed;
+      shouldStop = false;
+      crossTrafficBlocking = false;
+      console.log(`🔓 DEADLOCK OVERRIDE: Car ${car.id} proceeding despite collision risk - ${deadlockAnalysis.reason}`);
     }
   }
 
@@ -421,8 +574,9 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
     return light.streetId === car.currentStreetId && isAtEnd;
   });
 
-  // Check if car should stop for a red light
-  const shouldStopForLight = relevantLights.some(light => {
+  // ENHANCED: Check if car should stop for traffic lights with improved intersection logic
+  // But allow deadlock override to supersede traffic lights when cross-traffic is blocking
+  const shouldStopForLight = !crossTrafficBlocking && relevantLights.some(light => {
     // Calculate distance to intersection (as a percentage of street length)
     let distanceToIntersection;
     if (car.direction === 'forward') {
@@ -437,49 +591,35 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
     const distanceToIntersectionPixels = distanceToIntersection * streetLength;
     const hasEnteredIntersection = distanceToIntersectionPixels < LOCATION_RADIUS;
 
-    // Debug traffic light behavior - more frequent logging for testing
-    if (Math.random() < 0.05 && distanceToIntersection < 0.4) { // Log when cars are near lights
-      console.log(`Car ${car.id} approaching traffic light:`, {
-        lightId: light.id,
-        lightState: light.state,
-        distanceToIntersection: distanceToIntersection.toFixed(3),
-        hasEnteredIntersection,
-        shouldStop: (light.state === 'red' ||
-                    (light.state === 'yellow' && !hasEnteredIntersection)) &&
-                    distanceToIntersection < 0.3,
-        carDirection: car.direction,
-        streetId: car.currentStreetId
-      });
+    // ENHANCED: Once in intersection, continue through regardless of light changes
+    if (hasEnteredIntersection) {
+      return false; // Never stop once in intersection
     }
 
-    // Stop for red lights - stop at the very edge of the intersection unless there's a car ahead
-    if (light.state === 'red' && distanceToIntersection < 0.3) {
-      // Check if there's a car ahead that's already stopped
-      const carAhead = findCarAhead(car, allCars, streets, locations);
-      if (!carAhead || calculateDistanceBetweenCars(car, carAhead, streets, locations) > 30) {
-        // No car ahead or car ahead is far enough - stop at intersection edge
-        const LOCATION_RADIUS_PIXELS = 20;
-        const streetLength = Math.hypot(toLocation.x - fromLocation.x, toLocation.y - fromLocation.y);
-        const targetStopDistance = LOCATION_RADIUS_PIXELS / streetLength; // Stop at location edge
+    // ENHANCED: Improved stopping logic - stop closer to intersection
+    const DECELERATION_ZONE = 0.3; // Reduced from 0.4 to 0.3 for closer stopping
+    const STOP_LINE_DISTANCE = (LOCATION_RADIUS * 0.8) / streetLength; // Stop closer to intersection edge
 
-        if (distanceToIntersection > targetStopDistance) {
-          return true;
-        }
-      } else {
-        // There's a car ahead - use normal following behavior
+    // For red lights: stop at intersection edge
+    if (light.state === 'red' && distanceToIntersection < DECELERATION_ZONE) {
+      // Stop if we're not too close to the intersection edge
+      if (distanceToIntersection > STOP_LINE_DISTANCE) {
         return true;
       }
     }
 
-    // For yellow lights: stop only if not already in the intersection
-    if (light.state === 'yellow' && !hasEnteredIntersection && distanceToIntersection < 0.3) {
-      return true;
+    // For yellow lights: stop only if safe to do so and not too close to intersection
+    if (light.state === 'yellow' && distanceToIntersection < DECELERATION_ZONE) {
+      // Only stop if we have enough distance to stop safely
+      if (distanceToIntersection > STOP_LINE_DISTANCE * 1.5) {
+        return true;
+      }
     }
 
-    // Special handling for left turns
-    if (light.state === 'green' && car.nextTurn === 'left' && distanceToIntersection < 0.1) {
-      // Check for oncoming traffic
-      const hasOncomingTraffic = checkForOncomingTraffic(car, allCars, streets, locations);
+    // ENHANCED: Left turn yielding logic
+    if (light.state === 'green' && car.nextTurn === 'left' && distanceToIntersection < 0.2) {
+      // Check for oncoming traffic with predictive judgment
+      const hasOncomingTraffic = checkForOncomingTrafficAdvanced(car, allCars, streets, locations);
       if (hasOncomingTraffic) {
         waitingToTurnLeft = true;
         return true;
@@ -574,21 +714,28 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
     updatedCar.progress -= progressChange;
   }
 
-  // ENHANCED: Turn signal timing - start blinking 1 second before reaching intersection
+  // ENHANCED: Turn signal timing - start at halfway point of street for early indication
   const distanceToEnd = updatedCar.direction === 'forward' ? (1 - updatedCar.progress) : updatedCar.progress;
-  const timeToReachEnd = distanceToEnd / (updatedCar.speed || 0.1); // Avoid division by zero
+  const progressFromStart = updatedCar.direction === 'forward' ? updatedCar.progress : (1 - updatedCar.progress);
 
-  // Start turn signals 1 second before reaching the end (if we have a planned turn)
-  if (timeToReachEnd <= 1.0 && timeToReachEnd > 0 && updatedCar.nextTurn && updatedCar.nextTurn !== 'straight') {
+  // Start turn signals when car reaches halfway point of the street (if we have a planned turn)
+  if (progressFromStart >= 0.5 && updatedCar.nextTurn && updatedCar.nextTurn !== 'straight' && updatedCar.nextTurn !== 'uturn') {
     if (!updatedCar.turnSignalStartTime) {
       updatedCar.turnSignalStartTime = Date.now();
-      console.log(`Car ${updatedCar.id} started turn signal for ${updatedCar.nextTurn} turn`);
+      console.log(`Car ${updatedCar.id} started turn signal for ${updatedCar.nextTurn} turn at halfway point`);
     }
   }
 
-  // Check if car has reached the end of the street
-  if ((updatedCar.progress >= 1 && updatedCar.direction === 'forward') ||
-      (updatedCar.progress <= 0 && updatedCar.direction === 'backward')) {
+  // CRITICAL FIX: Only process end-of-street logic if car is actually moving
+  // This prevents collision-stopped cars from being teleported
+  const isActuallyAtEnd = (updatedCar.progress >= 1 && updatedCar.direction === 'forward') ||
+                         (updatedCar.progress <= 0 && updatedCar.direction === 'backward');
+
+  const isMoving = updatedCar.speed > 0.01; // Car must be moving to be considered at end
+  const isStoppedForCollision = shouldStop && (crossTrafficAnalysis || carAhead); // Check if stopped for collision
+
+  // Only process end-of-street if car is moving AND not stopped for collision avoidance
+  if (isActuallyAtEnd && isMoving && !isStoppedForCollision) {
 
     // Determine which location we've reached
     const nextLocationId = updatedCar.direction === 'forward' ? currentStreet.to : currentStreet.from;
@@ -626,11 +773,13 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
           updatedCar.startLocationId = nextLocationId;
           console.log(`Car ${updatedCar.id} new journey: ${nextLocationId} -> ${newDestination.id}`);
 
-          // FIXED: Immediately exit parking lot using the connected street
+          // FIXED: Smooth exit from parking lot to prevent teleportation
           // Determine direction to exit parking lot (opposite of how we entered)
           const exitDirection = exitStreet.from === nextLocationId ? 'forward' : 'backward';
 
-          // Update car to immediately exit parking lot
+          console.log(`🚗 Car ${updatedCar.id} smoothly exiting parking lot ${nextLocationId} via street ${exitStreet.id} in direction ${exitDirection}`);
+
+          // Update car to smoothly exit parking lot
           return {
             ...updatedCar,
             destinationId: newDestination.id,
@@ -687,7 +836,9 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
           };
         }
 
-        // Update car with new destination and next street
+        // CRITICAL: Only move to new street if car is actually moving
+        // This prevents teleportation of stopped cars
+        console.log(`🚗 Car ${updatedCar.id} transitioning to new street ${newNextStreetInfo.street.id} after reaching destination (speed: ${updatedCar.speed})`);
         return {
           ...updatedCar,
           destinationId: newDestinationId,
@@ -716,34 +867,23 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
     );
 
     if (!nextStreetInfo || !nextStreetInfo.street) {
-      // No valid next street, treat as dead end and make U-turn
-      console.log(`Car ${updatedCar.id} found no valid next street at ${nextLocationId}, making U-turn`);
+      // FIXED: Prevent car teleportation by being more conservative
+      console.log(`🚨 Car ${updatedCar.id} found no valid next street at ${nextLocationId}`);
+      console.log(`Available streets at location:`, connectedStreets.map(s => s.id));
+      console.log(`Current street: ${updatedCar.currentStreetId}, Destination: ${updatedCar.destinationId}`);
 
-      // For a U-turn, we stay on the same street but reverse direction
+      // Check if we have any streets at all at this location
+      if (connectedStreets.length === 0) {
+        console.log(`❌ No streets at location ${nextLocationId}, marking car as reached destination`);
+        return { ...updatedCar, reachedDestination: true };
+      }
+
+      // CONSERVATIVE APPROACH: Only do U-turn on current street to prevent teleportation
+      // Do NOT move car to a different street as this causes the teleportation issue
       const newDirection = updatedCar.direction === 'forward' ? 'backward' : 'forward';
-
-      // FIXED: For U-turns, set progress slightly away from the intersection
-      // If car was going forward (progress = 1), start at 0.95 for backward direction
-      // If car was going backward (progress = 0), start at 0.05 for forward direction
       const newProgress = updatedCar.direction === 'forward' ? 0.95 : 0.05;
 
-      console.log(`🔄 Car ${updatedCar.id} making U-turn:`, {
-        originalDirection: updatedCar.direction,
-        newDirection: newDirection,
-        originalProgress: updatedCar.progress,
-        newProgress: newProgress,
-        streetId: updatedCar.currentStreetId,
-        locationId: nextLocationId
-      });
-
-      // Store this routing decision in the cache
-      const routingKey = `${updatedCar.originalId || updatedCar.id}-${nextLocationId}-${updatedCar.currentStreetId}`;
-      const routingDecision = {
-        street: currentStreet,
-        direction: newDirection,
-        turn: 'uturn'
-      };
-      routingDecisions.set(routingKey, routingDecision);
+      console.log(`🔄 Conservative U-turn on current street ${updatedCar.currentStreetId} to prevent teleportation`);
 
       return {
         ...updatedCar,
@@ -751,9 +891,9 @@ export const updateCar = (car, streets, locations, trafficLights, deltaTime, all
         progress: newProgress,
         nextTurn: 'uturn',
         path: [...(updatedCar.path || []), nextLocationId],
-        speed: 0.1, // Small initial speed to start movement
+        speed: 0.1,
         waitingToTurnLeft: false,
-        reachedDestination: false // Ensure the car continues its journey
+        reachedDestination: false
       };
     }
 
@@ -871,7 +1011,7 @@ const generateNewDestination = (currentLocationId, locations, streets) => {
 };
 
 /**
- * Calculates distance between two cars
+ * Calculates distance between two cars using center points
  * @param {Object} car1 - First car
  * @param {Object} car2 - Second car
  * @param {Array} streets - All streets
@@ -888,6 +1028,378 @@ const calculateDistanceBetweenCars = (car1, car2, streets, locations) => {
 };
 
 /**
+ * Enhanced collision detection using car boundaries instead of center points
+ * @param {Object} car1 - First car
+ * @param {Object} car2 - Second car
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {Object} Collision analysis with distance, isColliding, and movement direction
+ */
+const analyzeCarCollision = (car1, car2, streets, locations) => {
+  const pos1 = calculateCarPosition(car1, streets, locations);
+  const pos2 = calculateCarPosition(car2, streets, locations);
+
+  if (!pos1 || !pos2) return { distance: Infinity, isColliding: false, car1MovingToward: false, car2MovingToward: false };
+
+  // Car dimensions (matching Car.jsx)
+  const CAR_WIDTH = 28;
+  const CAR_HEIGHT = 14;
+  const SAFETY_MARGIN = 5; // Reduced safety margin for more realistic collision detection
+
+  // Calculate car boundaries (simplified rectangular collision detection)
+  const car1Bounds = getCarBounds(pos1, CAR_WIDTH, CAR_HEIGHT);
+  const car2Bounds = getCarBounds(pos2, CAR_WIDTH, CAR_HEIGHT);
+
+  // Check for actual collision
+  const isColliding = checkBoundsCollision(car1Bounds, car2Bounds, SAFETY_MARGIN);
+
+  // Calculate center-to-center distance for reference
+  const centerDistance = Math.hypot(pos2.x - pos1.x, pos2.y - pos1.y);
+
+  // Analyze movement direction relative to collision point
+  const car1MovingToward = isCarMovingTowardPoint(car1, pos2, streets, locations);
+  const car2MovingToward = isCarMovingTowardPoint(car2, pos1, streets, locations);
+
+  return {
+    distance: centerDistance,
+    isColliding,
+    car1MovingToward,
+    car2MovingToward,
+    car1Bounds,
+    car2Bounds
+  };
+};
+
+/**
+ * Gets car boundary rectangle
+ * @param {Object} position - Car position with x, y, angle
+ * @param {number} width - Car width
+ * @param {number} height - Car height
+ * @returns {Object} Bounds with min/max x/y coordinates
+ */
+const getCarBounds = (position, width, height) => {
+  const { x, y, angle } = position;
+  const angleRad = angle * Math.PI / 180;
+
+  // Calculate car corners relative to center
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+
+  const corners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight }
+  ];
+
+  // Rotate corners based on car angle
+  const rotatedCorners = corners.map(corner => ({
+    x: x + corner.x * Math.cos(angleRad) - corner.y * Math.sin(angleRad),
+    y: y + corner.x * Math.sin(angleRad) + corner.y * Math.cos(angleRad)
+  }));
+
+  // Find bounding box
+  const xs = rotatedCorners.map(c => c.x);
+  const ys = rotatedCorners.map(c => c.y);
+
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys)
+  };
+};
+
+/**
+ * Checks if two bounding boxes collide with safety margin
+ * @param {Object} bounds1 - First car bounds
+ * @param {Object} bounds2 - Second car bounds
+ * @param {number} margin - Safety margin in pixels
+ * @returns {boolean} Whether collision is detected
+ */
+const checkBoundsCollision = (bounds1, bounds2, margin) => {
+  return !(bounds1.maxX + margin < bounds2.minX ||
+           bounds2.maxX + margin < bounds1.minX ||
+           bounds1.maxY + margin < bounds2.minY ||
+           bounds2.maxY + margin < bounds1.minY);
+};
+
+/**
+ * Determines if a car is moving toward a specific point
+ * @param {Object} car - Car object
+ * @param {Object} targetPoint - Point with x, y coordinates
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {boolean} Whether car is moving toward the point
+ */
+const isCarMovingTowardPoint = (car, targetPoint, streets, locations) => {
+  if (car.speed < 0.01) return false; // Stopped cars aren't moving toward anything
+
+  const currentPos = calculateCarPosition(car, streets, locations);
+  if (!currentPos) return false;
+
+  // Calculate car's movement vector based on its direction and street
+  const currentStreet = streets.find(s => s.id === car.currentStreetId);
+  if (!currentStreet) return false;
+
+  const fromLocation = locations.find(loc => loc.id === currentStreet.from);
+  const toLocation = locations.find(loc => loc.id === currentStreet.to);
+  if (!fromLocation || !toLocation) return false;
+
+  // Calculate movement direction vector
+  let movementVector;
+  if (car.direction === 'forward') {
+    movementVector = {
+      x: toLocation.x - fromLocation.x,
+      y: toLocation.y - fromLocation.y
+    };
+  } else {
+    movementVector = {
+      x: fromLocation.x - toLocation.x,
+      y: fromLocation.y - toLocation.y
+    };
+  }
+
+  // Normalize movement vector
+  const movementMagnitude = Math.hypot(movementVector.x, movementVector.y);
+  if (movementMagnitude === 0) return false;
+
+  movementVector.x /= movementMagnitude;
+  movementVector.y /= movementMagnitude;
+
+  // Calculate vector from car to target point
+  const toTargetVector = {
+    x: targetPoint.x - currentPos.x,
+    y: targetPoint.y - currentPos.y
+  };
+
+  // Normalize to-target vector
+  const toTargetMagnitude = Math.hypot(toTargetVector.x, toTargetVector.y);
+  if (toTargetMagnitude === 0) return false;
+
+  toTargetVector.x /= toTargetMagnitude;
+  toTargetVector.y /= toTargetMagnitude;
+
+  // Calculate dot product to determine if moving toward target
+  const dotProduct = movementVector.x * toTargetVector.x + movementVector.y * toTargetVector.y;
+
+  // If dot product > 0.5, car is moving toward the target (within ~60 degrees)
+  return dotProduct > 0.5;
+};
+
+/**
+ * ENHANCED: Finds cars that might cross the current car's path at intersections with smart collision analysis
+ * @param {Object} car - Current car
+ * @param {Array} allCars - All cars
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {Object|null} Cross-traffic car analysis or null
+ */
+const findCrossTrafficCar = (car, allCars, streets, locations) => {
+  // Only check for cross-traffic when approaching an intersection
+  const currentStreet = streets.find(s => s.id === car.currentStreetId);
+  if (!currentStreet) return null;
+
+  // Calculate distance to intersection
+  const distanceToIntersection = car.direction === 'forward' ? (1 - car.progress) : car.progress;
+
+  // Only check when very close to intersection to reduce false positives
+  if (distanceToIntersection > 0.25) return null;
+
+  // Find the intersection location
+  const intersectionLocationId = car.direction === 'forward' ? currentStreet.to : currentStreet.from;
+
+  // Find all streets connected to this intersection
+  const intersectionStreets = streets.filter(s =>
+    s.from === intersectionLocationId || s.to === intersectionLocationId
+  );
+
+  let mostCriticalCollision = null;
+  let highestPriority = 0;
+
+  // Check for cars on perpendicular streets that might cross our path
+  for (const otherCar of allCars) {
+    if (otherCar.id === car.id || otherCar.reachedDestination) continue;
+
+    // Check if the other car is on a different street connected to the same intersection
+    const otherStreet = streets.find(s => s.id === otherCar.currentStreetId);
+    if (!otherStreet) continue;
+
+    const isOnIntersectionStreet = intersectionStreets.some(s => s.id === otherCar.currentStreetId);
+    if (!isOnIntersectionStreet || otherCar.currentStreetId === car.currentStreetId) continue;
+
+    // Check if the other car is also approaching the same intersection
+    const otherIntersectionLocationId = otherCar.direction === 'forward' ? otherStreet.to : otherStreet.from;
+    if (otherIntersectionLocationId !== intersectionLocationId) continue;
+
+    // Calculate other car's distance to intersection
+    const otherDistanceToIntersection = otherCar.direction === 'forward' ? (1 - otherCar.progress) : otherCar.progress;
+
+    // Enhanced collision analysis using new boundary detection
+    const collisionAnalysis = analyzeCarCollision(car, otherCar, streets, locations);
+
+    // Check if both cars will arrive at intersection around the same time
+    const COLLISION_TIME_WINDOW = 0.3; // Reduced for more precise collision detection
+    const bothApproaching = distanceToIntersection < COLLISION_TIME_WINDOW &&
+                           otherDistanceToIntersection < COLLISION_TIME_WINDOW;
+
+    if (bothApproaching && collisionAnalysis.isColliding) {
+      // Calculate priority based on movement direction and right-of-way
+      let priority = 1;
+
+      // Higher priority if other car is moving toward us
+      if (collisionAnalysis.car2MovingToward) priority += 3;
+
+      // Lower priority if we're moving away from collision
+      if (!collisionAnalysis.car1MovingToward) priority -= 2;
+
+      // Consider speed - faster cars get higher priority for deadlock resolution
+      if (otherCar.speed > car.speed) priority += 1;
+
+      // Consider distance - closer cars get higher priority
+      const distanceFactor = Math.max(0, 1 - collisionAnalysis.distance / 100);
+      priority += distanceFactor;
+
+      // Debug collision detection occasionally
+      if (Math.random() < 0.05) { // 5% chance to log
+        console.log(`🔍 COLLISION ANALYSIS: Car ${car.id} vs Car ${otherCar.id}`, {
+          distance: collisionAnalysis.distance.toFixed(1),
+          car1MovingToward: collisionAnalysis.car1MovingToward,
+          car2MovingToward: collisionAnalysis.car2MovingToward,
+          priority: priority.toFixed(2),
+          bothApproaching,
+          car1Speed: car.speed.toFixed(2),
+          car2Speed: otherCar.speed.toFixed(2)
+        });
+      }
+
+      if (priority > highestPriority) {
+        highestPriority = priority;
+        mostCriticalCollision = {
+          car: otherCar,
+          analysis: collisionAnalysis,
+          priority,
+          shouldStop: collisionAnalysis.car1MovingToward && collisionAnalysis.car2MovingToward
+        };
+      }
+    }
+  }
+
+  return mostCriticalCollision;
+};
+
+/**
+ * Detects and resolves deadlock situations between cars
+ * @param {Object} car - Current car
+ * @param {Array} allCars - All cars
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {Object} Deadlock resolution decision
+ */
+const detectAndResolveDeadlock = (car, allCars, streets, locations) => {
+  // Only check for deadlock if car has been stopped for a while
+  const timeNotMoving = car.timeNotMoving || 0;
+  if (timeNotMoving < 3) { // Wait 3 seconds before considering deadlock
+    return { hasDeadlock: false, shouldProceed: false };
+  }
+
+  // Find cars that might be in deadlock with this car
+  const nearbyStoppedCars = allCars.filter(otherCar => {
+    if (otherCar.id === car.id || otherCar.reachedDestination) return false;
+    if (otherCar.speed > 0.01) return false; // Other car is moving
+    if ((otherCar.timeNotMoving || 0) < 2) return false; // Other car hasn't been stopped long enough
+
+    // Check if cars are close enough to be in potential deadlock
+    const distance = calculateDistanceBetweenCars(car, otherCar, streets, locations);
+    return distance < 80; // Within 80 pixels
+  });
+
+  if (nearbyStoppedCars.length === 0) {
+    return { hasDeadlock: false, shouldProceed: false };
+  }
+
+  // Analyze each potential deadlock situation
+  for (const otherCar of nearbyStoppedCars) {
+    const collisionAnalysis = analyzeCarCollision(car, otherCar, streets, locations);
+
+    // Check if this is a true deadlock (both cars stopped, facing each other)
+    if (collisionAnalysis.isColliding) {
+      // Determine which car should proceed based on priority rules
+      const carPriority = calculateDeadlockPriority(car, streets, locations);
+      const otherCarPriority = calculateDeadlockPriority(otherCar, streets, locations);
+
+      // If this car has higher priority, it should proceed
+      if (carPriority > otherCarPriority) {
+        console.log(`🚨 DEADLOCK RESOLVED: Car ${car.id} proceeding (priority ${carPriority} vs ${otherCarPriority})`);
+        return {
+          hasDeadlock: true,
+          shouldProceed: true,
+          reason: `Higher priority (${carPriority} vs ${otherCarPriority})`,
+          blockedBy: otherCar.id
+        };
+      }
+
+      // If other car has higher priority, this car should wait
+      if (otherCarPriority > carPriority) {
+        return {
+          hasDeadlock: true,
+          shouldProceed: false,
+          reason: `Lower priority (${carPriority} vs ${otherCarPriority})`,
+          blockedBy: otherCar.id
+        };
+      }
+
+      // If priorities are equal, use car ID as tiebreaker (deterministic)
+      const shouldProceed = car.id < otherCar.id;
+      console.log(`🚨 DEADLOCK RESOLVED: Car ${car.id} ${shouldProceed ? 'proceeding' : 'waiting'} (ID tiebreaker)`);
+      return {
+        hasDeadlock: true,
+        shouldProceed,
+        reason: `ID tiebreaker (${car.id} vs ${otherCar.id})`,
+        blockedBy: otherCar.id
+      };
+    }
+  }
+
+  return { hasDeadlock: false, shouldProceed: false };
+};
+
+/**
+ * Calculates priority for deadlock resolution
+ * @param {Object} car - Car to calculate priority for
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {number} Priority score (higher = more priority)
+ */
+const calculateDeadlockPriority = (car, streets, locations) => {
+  let priority = 0;
+
+  // Base priority from car speed (faster cars get slight priority)
+  priority += car.speed * 10;
+
+  // Priority based on progress (cars closer to intersection get priority)
+  const currentStreet = streets.find(s => s.id === car.currentStreetId);
+  if (currentStreet) {
+    const distanceToIntersection = car.direction === 'forward' ? (1 - car.progress) : car.progress;
+    priority += (1 - distanceToIntersection) * 5; // Closer to intersection = higher priority
+  }
+
+  // Priority based on turn type (straight > right > left for traffic flow)
+  switch (car.nextTurn) {
+    case 'straight': priority += 3; break;
+    case 'right': priority += 2; break;
+    case 'left': priority += 1; break;
+    case 'uturn': priority += 0; break;
+    default: priority += 1; break;
+  }
+
+  // Small random factor to prevent infinite ties
+  priority += Math.random() * 0.1;
+
+  return priority;
+};
+
+/**
  * Checks for oncoming traffic when making a left turn
  * @param {Object} car - Car wanting to turn left
  * @param {Array} allCars - All cars
@@ -896,11 +1408,6 @@ const calculateDistanceBetweenCars = (car1, car2, streets, locations) => {
  * @returns {boolean} Whether there is oncoming traffic
  */
 const checkForOncomingTraffic = (car, allCars, streets, locations) => {
-  // TODO: Use streets and locations for more sophisticated oncoming traffic detection
-  if (streets.length > 0 && locations.length > 0) {
-    console.log(`Checking oncoming traffic for ${car.id}`);
-  }
-
   // Find cars on the same street going in opposite direction
   const oncomingCars = allCars.filter(otherCar =>
     otherCar.id !== car.id &&
@@ -913,6 +1420,46 @@ const checkForOncomingTraffic = (car, allCars, streets, locations) => {
   return oncomingCars.some(oncomingCar => {
     const distance = Math.abs(oncomingCar.progress - car.progress);
     return distance < 0.3; // Within 30% of street length
+  });
+};
+
+/**
+ * ENHANCED: Advanced oncoming traffic check with predictive judgment for left turns
+ * @param {Object} car - Car wanting to turn left
+ * @param {Array} allCars - All cars
+ * @param {Array} streets - All streets
+ * @param {Array} locations - All locations
+ * @returns {boolean} Whether there is oncoming traffic that requires yielding
+ */
+const checkForOncomingTrafficAdvanced = (car, allCars, streets, locations) => {
+  // Find cars on the same street going in opposite direction
+  const oncomingCars = allCars.filter(otherCar =>
+    otherCar.id !== car.id &&
+    otherCar.currentStreetId === car.currentStreetId &&
+    otherCar.direction !== car.direction &&
+    !otherCar.reachedDestination
+  );
+
+  // Check each oncoming car with predictive judgment
+  return oncomingCars.some(oncomingCar => {
+    const distance = Math.abs(oncomingCar.progress - car.progress);
+
+    // If oncoming car is going straight or turning right, they have right of way
+    if (oncomingCar.nextTurn === 'straight' || oncomingCar.nextTurn === 'right' || !oncomingCar.nextTurn) {
+      // Use predictive judgment: consider speed and distance
+      const timeToIntersection = distance / (oncomingCar.speed || 0.1);
+      const SAFE_GAP_TIME = 3.0; // 3 seconds safe gap
+
+      return timeToIntersection < SAFE_GAP_TIME && distance < 0.5;
+    }
+
+    // If both cars are turning left, they can proceed simultaneously (no yield needed)
+    if (oncomingCar.nextTurn === 'left') {
+      return false;
+    }
+
+    // Default: yield if car is close
+    return distance < 0.3;
   });
 };
 
